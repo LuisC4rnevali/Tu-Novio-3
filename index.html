@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Para Gaby</title>
+    <style>
+        body { background-color: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; font-size: 16px; margin: 0; }
+        .pink { color: #ff69b4; }
+        .cyan { color: #00ffff; }
+        .yellow { color: #ffd700; }
+        .red { color: #ff4500; font-weight: bold;}
+        .green { color: #32cd32; }
+        #pantalla { white-space: pre-wrap; margin-bottom: 20px; }
+        #input-container { display: none; margin-top: 10px; }
+        input { background: transparent; color: #00ff00; border: none; border-bottom: 2px solid #00ff00; font-family: inherit; font-size: 16px; outline: none; width: 70%; padding: 5px; }
+        button { background: #00ff00; color: #121212; border: none; padding: 5px 15px; font-family: inherit; font-size: 16px; font-weight: bold; cursor: pointer; margin-left: 10px; border-radius: 5px;}
+    </style>
+</head>
+<body>
+
+<div id="pantalla"></div>
+<div id="input-container">
+    <input type="text" id="respuesta" autocomplete="off" placeholder="Escribe aquí...">
+    <button onclick="enviar()">Enviar</button>
+</div>
+
+<script>
+    const pantalla = document.getElementById("pantalla");
+    const inputContainer = document.getElementById("input-container");
+    const inputTexto = document.getElementById("respuesta");
+    let estado = 0;
+
+    async function escribir(texto, claseColor = "", velocidad = 40) {
+        let span = document.createElement("span");
+        if(claseColor) span.className = claseColor;
+        pantalla.appendChild(span);
+        
+        for (let i = 0; i < texto.length; i++) {
+            span.innerHTML += texto.charAt(i);
+            await new Promise(r => setTimeout(r, velocidad));
+        }
+        pantalla.innerHTML += "<br>";
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    async function pausar(ms) { await new Promise(r => setTimeout(r, ms)); }
+
+    async function iniciarJuego() {
+        await escribir("=== SISTEMA DE SEGURIDAD DE MI CORAZÓN ===", "cyan");
+        await pausar(1000);
+        await escribir("Alerta: Se ha detectado a una chica hermosa intentando acceder.", "yellow");
+        await pausar(1000);
+        await escribir("Por favor, ingresa tu nombre para continuar:", "green");
+        inputContainer.style.display = "block";
+        inputTexto.focus();
+    }
+
+    async function enviar() {
+        let texto = inputTexto.value.trim();
+        let textoMinuscula = texto.toLowerCase();
+        inputTexto.value = "";
+        inputContainer.style.display = "none";
+        await escribir("> " + texto, "green");
+
+        if (estado === 0) {
+            // Lista con tus nombres configurados
+            let nombresValidos = ["gaby", "gabi", "gabriela", "gabriela gonzales"];
+            if (nombresValidos.includes(textoMinuscula)) {
+                await pausar(500);
+                await escribir("\n¡Bienvenida, " + texto + "! 💕", "pink");
+                await pausar(1000);
+                await escribir("Para desbloquear tu sorpresa, debes pasar el 'Test del Amor'.", "cyan");
+                await escribir("----------------------------------------", "cyan");
+                await pausar(1000);
+                await escribir("NIVEL 1: ¿Cuál es mi parte favorita de ti?", "yellow");
+                await escribir("1. Tu sonrisa hermosa", "cyan");
+                await escribir("2. Tus ojitos", "cyan");
+                await escribir("3. Absolutamente todo", "cyan");
+                await escribir("Elige una opción (1, 2 o 3):", "green");
+                estado = 1;
+                inputContainer.style.display = "block";
+                inputTexto.focus();
+            } else {
+                await escribir("Acceso denegado. Este sistema solo admite a mi persona favorita. (Pista: se llama Gabi)", "red");
+                await pausar(3000);
+                pantalla.innerHTML = "";
+                iniciarJuego();
+            }
+        } else if (estado === 1) {
+            if (textoMinuscula === "3") {
+                await escribir("¡CORRECTO! Aunque tus ojitos y tu sonrisa me matan, amo todo de ti. 🥰\n", "green");
+                await pausar(1000);
+                await escribir("NIVEL 2: Contraseña de seguridad", "yellow");
+                await escribir("Completa la frase: 'Te amo más que a...'", "cyan");
+                estado = 2;
+                inputContainer.style.display = "block";
+                inputTexto.focus();
+            } else {
+                await escribir("Cerca... pero piénsalo bien, ¡hay una respuesta más completa! Intenta de nuevo (1, 2 o 3):", "red");
+                inputContainer.style.display = "block";
+                inputTexto.focus();
+            }
+        } else if (estado === 2) {
+            let palabraSecreta = "cualquier cosa"; 
+            await escribir("\nAnalizando respuesta...", "yellow");
+            await pausar(1500);
+            await escribir("Bueno, escribiste '" + texto + "', pero la respuesta correcta en el código era '" + palabraSecreta + "'.", "cyan");
+            await pausar(1000);
+            await escribir("¡Pero no importa porque te ganaste mi corazón! Nivel 2 superado. 🎉\n", "green");
+            await pausar(1500);
+            pantalla.innerHTML = "";
+            await escribir("¡ACCESO CONCEDIDO! Abriendo la bóveda secreta...\n", "yellow");
+            await pausar(1000);
+            await escribir("Desencriptando archivo: [❤️❤️❤️❤️❤️❤️❤️❤️❤️❤️] 100%", "pink");
+            await pausar(1000);
+            pantalla.innerHTML = "";
+            await escribir("Para mi novia hermosa ✨", "yellow");
+            await pausar(500);
+            await escribir("Felicidades por ganar el juego, mi amor.", "cyan");
+            await escribir("Quería usar la tecnología para sacarte una sonrisa hoy.", "cyan");
+            await escribir("Eres la jugadora número 1 de mi vida y mi 'acompañante' favorita.\n", "cyan");
+            await pausar(1000);
+            await escribir("Gracias por aguantar mis locuras y por ser tan increíble.", "pink");
+            await escribir("Cada día a tu lado es una nueva aventura que no quiero que termine jamás.\n", "pink");
+            await pausar(1000);
+            await escribir("Te amo con todo mi corazon 🖤", "red");
+            await pausar(1000);
+            await escribir("           ❤️❤️❤️❤️❤️❤️❤️", "red");
+        }
+    }
+
+    inputTexto.addEventListener("keypress", function(event) {
+        if (event.key === "Enter") { event.preventDefault(); enviar(); }
+    });
+
+    iniciarJuego();
+</script>
+</body>
+</html>
