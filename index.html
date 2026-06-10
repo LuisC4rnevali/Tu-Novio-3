@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Para Gaby - Premium Arcade Edition</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; touch-action: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #030307; font-family: 'Courier New', Courier, monospace; color: #00ff00; }
+        
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 500px; margin: 0 auto; background: #000; overflow: hidden; }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        /* Capa de Texto para la Terminal y la Carta Final */
+        #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 25px; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-start; z-index: 10; }
+        .terminal-text { white-space: pre-wrap; font-size: 16px; line-height: 1.5; font-weight: bold; text-shadow: 0 0 8px rgba(0,255,0,0.8); }
+        
+        /* Colores de neón vivos */
+        .pink { color: #ff1493; text-shadow: 0 0 10px #ff1493, 0 0 20px #ff1493; }
+        .cyan { color: #00ffff; text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff; }
+        .yellow { color: #ffff00; text-shadow: 0 0 10px #ffff00, 0 0 20px #ffff00; }
+        .red { color: #ff3333; text-shadow: 0 0 10px #ff3333, 0 0 20px #ff3333; }
+        .green { color: #39ff14; text-shadow: 0 0 10px #39ff14, 0 0 20px #39ff14; }
+
+        /* Banner de Transición de Nivel */
+        #level-banner { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 28px; font-weight: bold; color: #ffff00; text-shadow: 0 0 15px #ffff00; display: none; pointer-events: none; animation: flash 1s infinite; z-index: 20; }
+        
+        #instrucciones { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 13px; color: #00ffff; text-shadow: 0 0 5px #00ffff; opacity: 0.8; animation: pulse 1.5s infinite; pointer-events: none; }
+        
+        @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } }
+        @keyframes flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="level-banner">NIVEL COMPLETADO</div>
+    <canvas id="arcadeCanvas"></canvas>
+    <div id="ui-overlay">
+        <div id="terminal" class="terminal-text"></div>
+    </div>
+    <div id="instrucciones">▲ Arrastra para flotar y esquivar ▲<br>(Disparo Automático de Neón)</div>
+</div>
+
+<script>
+    const canvas = document.getElementById("arcadeCanvas");
+    const ctx = canvas.getContext("2d");
+    const terminal = document.getElementById("terminal");
+    const instrucciones = document.getElementById("instrucciones");
+    const levelBanner = document.getElementById("level-banner");
+
+    // Configuración de pantalla fija interna (Relación de aspecto vertical arcade)
+    const WIDTH = 440;
+    const HEIGHT = 680;
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+
+    // SISTEMA DE ESTADOS MEJORADO
+    // Fases Impares = Oleadas de disparos. Fases Pares = Jefes de Preguntas.
+    let gameState = 0; 
+    let gameTimer = 0;
+    let score = 0;
+    let shakeTime = 0;
+    let shakeIntensity = 0;
+    let starSpeedMultiplier = 1;
+
+    // Configuración del tiempo por oleada
+    const TIEMPO_OLEADA = 30; 
+
+    // Entidades
+    let player = { x: WIDTH / 2, targetX: WIDTH / 2, y: HEIGHT - 80, w: 32, h: 32 };
+    let lasers = [];
+    let enemies = [];
+    let particles = [];
+    let stars = [];
+
+    // Estrellas en capas (Parallax para dar profundidad 3D)
+    for (let i = 0; i < 60; i++) {
+        stars.push({
+            x: Math.random() * WIDTH,
+            y: Math.random() * HEIGHT,
+            size: Math.random() * 2 + 0.5,
+            speed: Math.random() * 2 + 0.5,
+            color: Math.random() > 0.7 ? '#ff1493' : '#00ffff'
+        });
+    }
+
+    // CONTROLES TÁCTILES CON LERP (Suavizado de movimiento fluido)
+    function actualizarTargetX(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        const canvasX = (clientX - rect.left) * (WIDTH / rect.width);
+        player.targetX = Math.max(20, Math.min(WIDTH - 20, canvasX));
+    }
+    window.addEventListener('mousemove', (e) => actualizarTargetX(e.clientX));
+    window.addEventListener('touchmove', (e) => { if(e.touches.length > 0) actualizarTargetX(e.touches[0].clientX); e.preventDefault(); }, {passive: false});
+    window.addEventListener('touchstart', (e) => { if(e.touches.length > 0) actualizarTargetX(e.touches[0].clientX); }, {passive: true});
+
+    // EFECTO FEEDBACK: Temblor de pantalla (Screen Shake)
+    function activarShake(duracion, intensidad) {
+        shakeTime = duracion;
+        shakeIntensity = intensidad;
+    }
+
+    // TEXTO FLUIDO TIPO TERMINAL
+    function limpiarTerminal() { terminal.innerHTML = ""; }
+    async function escribir(texto, claseColor = "") {
+        let span = document.createElement("span");
+        if(claseColor) span.className = claseColor;
+        terminal.appendChild(span);
+        for (let i = 0; i < texto.length; i++) {
+            span.innerHTML += texto.charAt(i);
+            await new Promise(r => setTimeout(r, 20));
+        }
+        terminal.innerHTML += "<br>";
+    }
+    const pausar = ms => new Promise(r => setTimeout(r, ms));
+
+    // FLUX DE JUEGO EXPANDIDO
+    async function iniciarFlujoJuego() {
+        instrucciones.style.display = "none";
+        await escribir("=== INICIANDO PROTOCOLO CORE_DE_AMOR v2.6 ===", "cyan");
+        await pausar(1000);
+        await escribir("Buscando base de datos de la niña más hermosa...", "yellow");
+        await pausar(1200);
+        await escribir("¡Usuario detectado! Desbloqueando controles espaciales...", "green");
+        await pausar(1000);
+        
+        empezarOleada(1, "FASE 1: Rompiendo bloqueos de seguridad");
+    }
+
+    async function empezarOleada(numeroFase, textoPantalla) {
+        limpiarTerminal();
+        instrucciones.style.display = "block";
+        await escribir(textoPantalla, "cyan");
+        starSpeedMultiplier = 4; // Efecto Warp de velocidad acelerada al cambiar de fase
+        await pausar(1000);
+        starSpeedMultiplier = 1;
+        gameState = numeroFase;
+        gameTimer = 0;
+    }
+
+    // MANEJADORES DE PREGUNTAS (JEFES)
+    async function cargarJefe1() {
+        gameState = 2; limpiarTerminal();
+        await escribir("PREGUNTA 1: Identificación obligatoria", "yellow");
+        await escribir("Dispara al asteroide que contiene tu nombre real:", "green");
+        generarBossOpciones([
+            { txt: "Gaby 💕", correct: true, w: 90 },
+            { txt: "Clon Malvado", correct: false, w: 120 },
+            { txt: "Intrusa 101", correct: false, w: 110 }
+        ]);
+    }
+
+    async function cargarJefe2() {
+        gameState = 4; limpiarTerminal();
+        await escribir("PREGUNTA 2: Sinceridad cuántica", "yellow");
+        await escribir("¿Cuál es mi parte favorita de todo tu ser?", "green");
+        generarBossOpciones([
+            { txt: "1. Tus ojitos", correct: false, w: 120 },
+            { txt: "2. Tu sonrisa", correct: false, w: 120 },
+            { txt: "3. ABSOLUTAMENTE TODO 🥰", correct: true, w: 200 }
+        ]);
+    }
+
+    async function cargarJefe3() {
+        gameState = 6; limpiarTerminal();
+        await escribir("PREGUNTA 3: Escala de magnitud", "yellow");
+        await escribir("¿Cuánto te amo exactamente?", "green");
+        generarBossOpciones([
+            { txt: "Muchísimo", correct: false, w: 100 },
+            { txt: "De aquí al infinito en un Ferrari 🏎️💨", correct: true, w: 280 },
+            { txt: "Un montón", correct: false, w: 100 }
+        ]);
+    }
+
+    async function cargarJefe4() {
+        gameState = 8; limpiarTerminal();
+        await escribir("PREGUNTA 4: Línea de tiempo futura", "yellow");
+        await escribir("¿Qué nos espera en el futuro juntos?", "green");
+        generarBossOpciones([
+            { txt: "Viajes y comida rica ✈️", correct: false, w: 200 },
+            { txt: "Momentos hermosos", correct: false, w: 160 },
+            { txt: "Todas las anteriores + viejitos y felices 👵👴❤️", correct: true, w: 320 }
+        ]);
+    }
+
+    function generarBossOpciones(opciones) {
+        enemies = [];
+        opciones.forEach((opc, i) => {
+            enemies.push({
+                x: (WIDTH / 2) - (opc.w / 2),
+                y: 100 + (i * 70),
+                txt: opc.txt,
+                isCorrect: opc.correct,
+                w: opc.w, h: 35,
+                hp: opc.correct ? 3 : 1, // El correcto resiste un poco más para que se note el impacto
+                vx: (i % 2 === 0 ? 1 : -1) * 0.8,
+                baseY: 100 + (i * 70),
+                timeOffset: i * 500 // Para desfase de animación ondulante
+            });
+        });
+    }
+
+    async function mostrarBannerVictoriaNivel(callbackSiguiente) {
+        levelBanner.style.display = "block";
+        activarShake(30, 8);
+        await pausar(1500);
+        levelBanner.style.display = "none";
+        callbackSiguiente();
+    }
+
+    async function irAVictoriaFinal() {
+        gameState = 10;
+        limpiarTerminal();
+        instrucciones.style.display = "none";
+        enemies = []; lasers = [];
+        starSpeedMultiplier = 0.2; // Las estrellas se detienen suavemente
+
+        await escribir("¡ACCESO TOTAL CONCEDIDO! Abriendo Bóveda del Corazón... 🎉", "yellow");
+        await pausar(1200);
+        limpiarTerminal();
+        
+        // MENSAJE ROMÁNTICO FINAL ORIGINAL
+        await escribir("Para mi novia hermosa ✨", "yellow");
+        await pausar(600);
+        await escribir("Felicidades por ganar el juego, mi amor.", "cyan");
+        await escribir("Quería usar la tecnología para sacarte una sonrisa hoy.", "cyan");
+        await escribir("Eres la jugadora número 1 de mi vida y mi 'acompañante' favorita.\n", "cyan");
+        await pausar(1500);
+        await escribir("Gracias por aguantar mis locuras y por ser tan increíble.", "pink");
+        await escribir("Cada día a tu lado es una nueva aventura que no quiero que termine jamás.\n", "pink");
+        await pausar(1500);
+        await escribir("Te amo con todo mi corazón 🖤", "red");
+        await escribir("           ❤️❤️❤️❤️❤️❤️❤️", "red");
+    }
+
+    // MECÁNICAS DE SPAWN Y DISPARO AUTOMÁTICO
+    let lastShot = 0;
+    let lastSpawn = 0;
+
+    function logicaFasesYSpawns() {
+        let ahora = Date.now();
+
+        // Disparos láser fluidos
+        if ((gameState > 0 && gameState < 10) && ahora - lastShot > 160) {
+            lasers.push({ x: player.x, y: player.y - 15, w: 5, h: 16, speed: 9 });
+            lastShot = ahora;
+        }
+
+        // Spawn de enemigos comunes en fases impares (Oleadas)
+        if ((gameState === 1 || gameState === 3 || gameState === 5 || gameState === 7) && ahora - lastSpawn > 800) {
+            let pools = [
+                ["Glitch", "Virus", "Error"],
+                ["Rutina", "Estrés", "Distancia"],
+                ["Aburrimiento", "Dudas", "Miedos"],
+                ["Mal humor", "Spam", "Inseguridad"]
+            ];
+            let listado = pools[Math.floor(gameState/2)];
+            let palabra = listado[Math.floor(Math.random() * listado.length)];
+            
+            enemies.push({
+                x: Math.random() * (WIDTH - 100) + 50,
+                y: -30,
+                txt: palabra,
+                w: palabra.length * 9 + 20,
+                h: 24,
+                hp: 1,
+                vx: (Math.random() - 0.5) * 2,
+                vy: Math.random() * 1.2 + 1.5,
+                sinAmp: Math.random() * 2 // Para movimiento curvo de Galaga
+            });
+            lastSpawn = ahora;
+        }
+
+        // Control de los relojes de oleadas normales
+        if (gameState === 1 || gameState === 3 || gameState === 5 || gameState === 7) {
+            gameTimer += 1/60;
+            if (gameTimer >= TIEMPO_OLEADA) {
+                if (gameState === 1) cargarJefe1();
+                if (gameState === 3) cargarJefe2();
+                if (gameState === 5) cargarJefe3();
+                if (gameState === 7) cargarJefe4();
+            }
+        }
+    }
+
+    // ACTUALIZACIÓN DE COORDENADAS Y COLISIONES (60 FPS)
+    function update() {
+        logicaFasesYSpawns();
+
+        // 1. Efecto LERP en el movimiento de la nave (Suavizado sedoso)
+        player.x += (player.targetX - player.x) * 0.16;
+
+        // 2. Parallax de Estrellas de fondo
+        stars.forEach(s => {
+            s.y += s.speed * starSpeedMultiplier;
+            if (s.y > HEIGHT) { s.y = 0; s.x = Math.random() * WIDTH; }
+        });
+
+        // 3. Mover Láseres
+        lasers.forEach((l, idx) => {
+            l.y -= l.speed;
+            if (l.y < 0) lasers.splice(idx, 1);
+        });
+
+        // 4. Mover y animar enemigos (Ondas Senoidales para fluidez visual)
+        enemies.forEach((e, eIdx) => {
+            if (e.vy) { // Enemigos normales cayendo
+                e.y += e.vy;
+                if(e.sinAmp > 0) e.x += Math.sin(e.y / 30) * e.sinAmp; // Curva elegante
+            } else { // Jefes flotando de lado a lado con balanceo
+                e.x += e.vx;
+                e.y = e.baseY + Math.sin((Date.now() + e.timeOffset) / 300) * 8;
+            }
+
+            // Rebotar contra paredes laterales
+            if (e.x < 10 || e.x + e.w > WIDTH - 10) e.vx *= -1;
+            if (e.y > HEIGHT) e.y = -30;
+
+            // Detectar Colisiones de Láser -> Enemigo
+            lasers.forEach((l, lIdx) => {
+                if (l.x > e.x && l.x < e.x + e.w && l.y > e.y && l.y < e.y + e.h) {
+                    lasers.splice(lIdx, 1);
+                    e.hp--;
+                    activarShake(6, 3); // Pequeño temblor al impactar
+
+                    // Partículas de chispas de neón
+                    for (let p = 0; p < 6; p++) {
+                        particles.push({
+                            x: l.x, y: e.y + e.h/2,
+                            vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5,
+                            size: Math.random() * 2 + 1, alpha: 1,
+                            color: e.isCorrect ? '#ff1493' : '#00ffff'
+                        });
+                    }
+
+                    if (e.hp <= 0) {
+                        enemies.splice(eIdx, 1);
+                        score += 25;
+
+                        // Validación de respuestas correctas e incorrectas
+                        if (gameState === 2 || gameState === 4 || gameState === 6 || gameState === 8) {
+                            if (e.isCorrect) {
+                                let siguienteEstado = gameState + 1;
+                                if (siguienteEstado === 9) {
+                                    mostrarBannerVictoriaNivel(() => irAVictoriaFinal());
+                                } else {
+                                    let textosFases = {
+                                        3: "FASE 2: Eliminando virus de rutina diaria...",
+                                        5: "FASE 3: Hackeando núcleos de aburrimiento...",
+                                        7: "FASE 4: Purificando el espacio de malas vibras..."
+                                    };
+                                    mostrarBannerVictoriaNivel(() => empezarOleada(siguienteEstado, textosFases[siguienteEstado]));
+                                }
+                            } else {
+                                // Si se equivoca, recreamos el jefe de inmediato con efecto flash de error
+                                activarShake(25, 7);
+                                if (gameState === 2) cargarJefe1();
+                                if (gameState === 4) cargarJefe2();
+                                if (gameState === 6) cargarJefe3();
+                                if (gameState === 8) cargarJefe4();
+                            }
+                        }
+                    }
+                }
+            });
+        });
+
+        // 5. Manejo y desintegración de partículas
+        particles.forEach((p, index) => {
+            p.x += p.vx; p.y += p.vy; p.alpha -= 0.025;
+            if (p.alpha <= 0) particles.splice(index, 1);
+        });
+
+        // 6. Lluvia masiva de corazones en pantalla de victoria final
+        if (gameState === 10 && Math.random() < 0.15) {
+            particles.push({
+                x: Math.random() * WIDTH, y: -20,
+                vx: (Math.random() - 0.5) * 2, vy: Math.random() * 1.5 + 1.5,
+                size: Math.random() * 8 + 6, alpha: 1, isHeart: true
+            });
+        }
+
+        // Reducir intensidad del temblor de pantalla frame a frame
+        if (shakeTime > 0) shakeTime--;
+    }
+
+    // RENDERIZADO VISUAL CON EFECTOS DE BRILLO (GLOW EFFECTS)
+    function draw() {
+        ctx.save();
+        
+        // Aplicar el Screen Shake si está activo
+        if (shakeTime > 0) {
+            let dx = (Math.random() - 0.5) * shakeIntensity;
+            let dy = (Math.random() - 0.5) * shakeIntensity;
+            ctx.translate(dx, dy);
+        }
+
+        // Fondo cósmico degradado sutil
+        ctx.fillStyle = "#020206";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        // Dibujar Estrellas
+        stars.forEach(s => {
+            ctx.fillStyle = s.color;
+            ctx.fillRect(s.x, s.y, s.size, s.size);
+        });
+
+        // Dibujar Nave de Gaby (Estilo Caza Neón del Amor Cyberpunk)
+        if (gameState > 0 && gameState < 10) {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = "#ff1493";
+            ctx.strokeStyle = "#ff1493";
+            ctx.lineWidth = 3;
+            ctx.fillStyle = "rgba(255, 20, 147, 0.2)";
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - 18);
+            ctx.lineTo(player.x - 16, player.y + 16);
+            ctx.lineTo(player.x + 16, player.y + 16);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            // Motores/Propulsores traseros dinámicos
+            ctx.fillStyle = Math.random() > 0.5 ? "#00ffff" : "#ffff00";
+            ctx.fillRect(player.x - 6, player.y + 17, 4, 6);
+            ctx.fillRect(player.x + 2, player.y + 17, 4, 6);
+            ctx.shadowBlur = 0; // Limpiar sombras para optimizar
+        }
+
+        // Dibujar Láseres de Neón Cyan
+        ctx.fillStyle = "#00ffff";
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = "#00ffff";
+        lasers.forEach(l => ctx.fillRect(l.x - l.w/2, l.y, l.w, l.h));
+        ctx.shadowBlur = 0;
+
+        // Dibujar Cajas de Enemigos y Respuestas
+        enemies.forEach(e => {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = e.isCorrect && (gameState % 2 === 0) ? "#ff1493" : "#39ff14";
+            ctx.strokeStyle = e.isCorrect && (gameState % 2 === 0) ? "#ff1493" : "#39ff14";
+            ctx.lineWidth = 2.5;
+            
+            // Rectángulo redondeado de neón
+            ctx.strokeRect(e.x, e.y, e.w, e.h);
+            ctx.fillStyle = "rgba(0,0,0,0.75)"; // Fondo opaco para leer el texto fácilmente
+            ctx.fillRect(e.x, e.y, e.w, e.h);
+            
+            // Texto centrado
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 12px 'Courier New'";
+            ctx.textAlign = "center";
+            ctx.fillText(e.txt, e.x + e.w/2, e.y + e.h/2 + 4);
+            ctx.shadowBlur = 0;
+        });
+
+        // Dibujar Explosiones y Lluvia de Corazones finales
+        particles.forEach(p => {
+            ctx.globalAlpha = p.alpha;
+            if (p.isHeart) {
+                ctx.fillStyle = "#ff1493";
+                ctx.font = `${p.size}px Arial`;
+                ctx.fillText("❤️", p.x, p.y);
+            } else {
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
+        });
+        ctx.globalAlpha = 1.0;
+
+        // Marcador UI Superior de Puntos y Progreso
+        if (gameState > 0 && gameState < 10) {
+            ctx.fillStyle = "rgba(57, 255, 20, 0.5)";
+            ctx.font = "bold 13px 'Courier New'";
+            ctx.textAlign = "left";
+            ctx.fillText(`SCORE: ${score}`, 20, 25);
+            
+            // Barra de temporizador fluida superior para pasar a las preguntas
+            if (gameState === 1 || gameState === 3 || gameState === 5 || gameState === 7) {
+                let pct = (TIEMPO_OLEADA - gameTimer) / TIEMPO_OLEADA;
+                ctx.fillStyle = "rgba(0, 255, 255, 0.2)";
+                ctx.fillRect(WIDTH - 140, 15, 120, 10);
+                ctx.fillStyle = "#00ffff";
+                ctx.fillRect(WIDTH - 140, 15, 120 * Math.max(0, pct), 10);
+            }
+        }
+
+        ctx.restore();
+    }
+
+    // MAIN GAME LOOP (Sincronizado a los Hz de la pantalla del móvil)
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // Lanzar ejecuciones iniciales
+    iniciarFlujoJuego();
+    gameLoop();
+</script>
+
+</body>
+</html>
